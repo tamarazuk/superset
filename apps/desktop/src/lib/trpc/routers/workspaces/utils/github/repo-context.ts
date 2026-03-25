@@ -1,28 +1,18 @@
 import { execGitWithShellPath } from "../git-client";
 import { execWithShellEnv } from "../shell-env";
+import { getCachedRepoContextState, readCachedRepoContext } from "./cache";
 import { GHRepoResponseSchema, type RepoContext } from "./types";
 
-const repoContextCache = new Map<
-	string,
-	{ data: RepoContext; timestamp: number }
->();
-const REPO_CONTEXT_CACHE_TTL_MS = 300_000; // 5 minutes
-
-export async function getRepoContext(
+async function refreshRepoContext(
 	worktreePath: string,
 ): Promise<RepoContext | null> {
-	const cached = repoContextCache.get(worktreePath);
-	if (cached && Date.now() - cached.timestamp < REPO_CONTEXT_CACHE_TTL_MS) {
-		return cached.data;
-	}
-
 	try {
 		const { stdout } = await execWithShellEnv(
 			"gh",
 			["repo", "view", "--json", "url,isFork,parent"],
 			{ cwd: worktreePath },
 		);
-		const raw = JSON.parse(stdout);
+		const raw: unknown = JSON.parse(stdout);
 		const result = GHRepoResponseSchema.safeParse(raw);
 		if (!result.success) {
 			console.error("[GitHub] Repo schema validation failed:", result.error);
@@ -62,14 +52,61 @@ export async function getRepoContext(
 			}
 		}
 
-		repoContextCache.set(worktreePath, {
-			data: context,
-			timestamp: Date.now(),
-		});
 		return context;
-	} catch {
+	} catch (error) {
+		console.warn("[GitHub] Failed to refresh repo context:", error);
 		return null;
 	}
+}
+
+export async function getRepoContext(
+	worktreePath: string,
+	options?: {
+		forceFresh?: boolean;
+	},
+): Promise<RepoContext | null> {
+	const originUrl = await getOriginUrl(worktreePath);
+	const cachedRepoContext =
+		getCachedRepoContextState(worktreePath)?.value ?? null;
+	const forceFresh =
+		Boolean(options?.forceFresh) ||
+		shouldRefreshCachedRepoContext({
+			originUrl,
+			cachedRepoContext,
+		});
+
+	return readCachedRepoContext(
+		worktreePath,
+		() => refreshRepoContext(worktreePath),
+		{
+			forceFresh,
+		},
+	);
+}
+
+export function shouldRefreshCachedRepoContext({
+	originUrl,
+	cachedRepoContext,
+}: {
+	originUrl: string | null;
+	cachedRepoContext: RepoContext | null;
+}): boolean {
+	if (!cachedRepoContext) {
+		return false;
+	}
+
+	const normalizedOriginUrl = normalizeGitHubUrl(
+		originUrl ?? "",
+	)?.toLowerCase();
+	const normalizedCachedRepoUrl = normalizeGitHubUrl(
+		cachedRepoContext.repoUrl,
+	)?.toLowerCase();
+
+	if (!normalizedOriginUrl || !normalizedCachedRepoUrl) {
+		return false;
+	}
+
+	return normalizedCachedRepoUrl !== normalizedOriginUrl;
 }
 
 async function getOriginUrl(worktreePath: string): Promise<string | null> {

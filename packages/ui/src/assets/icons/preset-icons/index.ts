@@ -7,6 +7,8 @@ import cursorAgentIcon from "./cursor.svg";
 import geminiIcon from "./gemini.svg";
 import kiloDarkIcon from "./kilo-dark.svg";
 import kiloLightIcon from "./kilo-light.svg";
+import mastracodeIcon from "./mastracode.svg";
+import mastracodeWhiteIcon from "./mastracode-white.svg";
 import opencodeIcon from "./opencode.svg";
 import opencodeWhiteIcon from "./opencode-white.svg";
 import piIcon from "./pi.svg";
@@ -28,6 +30,7 @@ export const PRESET_ICONS: Record<string, PresetIconSet> = {
 	superset: { light: supersetIcon, dark: supersetIcon },
 	"superset-chat": { light: supersetIcon, dark: supersetIcon },
 	"cursor-agent": { light: cursorAgentIcon, dark: cursorAgentIcon },
+	mastracode: { light: mastracodeIcon, dark: mastracodeWhiteIcon },
 	opencode: { light: opencodeIcon, dark: opencodeWhiteIcon },
 };
 
@@ -51,6 +54,8 @@ export {
 	geminiIcon,
 	kiloDarkIcon,
 	kiloLightIcon,
+	mastracodeIcon,
+	mastracodeWhiteIcon,
 	opencodeIcon,
 	opencodeWhiteIcon,
 	piIcon,

@@ -17,6 +17,7 @@ export type LinkedIssue = {
 	title: string;
 	source?: "github" | "internal";
 	url?: string; // GitHub issue URL
+	taskId?: string; // Internal task ID for navigation
 	number?: number; // GitHub issue number
 	state?: "open" | "closed";
 };
@@ -31,7 +32,7 @@ export type LinkedPR = {
 export interface NewWorkspaceModalDraft {
 	selectedProjectId: string | null;
 	prompt: string;
-	baseBranch: string | null;
+	compareBaseBranch: string | null;
 	runSetupScript: boolean;
 	workspaceName: string;
 	workspaceNameEdited: boolean;
@@ -49,7 +50,7 @@ interface NewWorkspaceModalDraftState extends NewWorkspaceModalDraft {
 const initialDraft: NewWorkspaceModalDraft = {
 	selectedProjectId: null,
 	prompt: "",
-	baseBranch: null,
+	compareBaseBranch: null,
 	runSetupScript: true,
 	workspaceName: "",
 	workspaceNameEdited: false,
@@ -157,7 +158,7 @@ export function NewWorkspaceModalDraftProvider({
 			draft: {
 				selectedProjectId: state.selectedProjectId,
 				prompt: state.prompt,
-				baseBranch: state.baseBranch,
+				compareBaseBranch: state.compareBaseBranch,
 				runSetupScript: state.runSetupScript,
 				workspaceName: state.workspaceName,
 				workspaceNameEdited: state.workspaceNameEdited,

@@ -29,6 +29,7 @@ import {
 	DEFAULT_TERMINAL_LINK_BEHAVIOR,
 	DEFAULT_USE_COMPACT_TERMINAL_ADD_BUTTON,
 } from "shared/constants";
+import { normalizePresetProjectIds } from "shared/preset-project-targeting";
 import {
 	CUSTOM_RINGTONE_ID,
 	DEFAULT_RINGTONE_ID,
@@ -56,7 +57,9 @@ import {
 import {
 	normalizeTerminalPresets,
 	type PresetWithUnknownMode,
+	shouldPersistNormalizedTerminalPresets,
 } from "./preset-execution-mode";
+import { getPresetsForTriggerField } from "./preset-trigger-selection";
 
 function isValidRingtoneId(ringtoneId: string): boolean {
 	if (isBuiltInRingtoneId(ringtoneId)) {
@@ -85,7 +88,13 @@ function readRawTerminalPresets(): PresetWithUnknownMode[] {
 
 function getNormalizedTerminalPresets() {
 	const rawPresets = readRawTerminalPresets();
-	return normalizeTerminalPresets(rawPresets);
+	const normalizedPresets = normalizeTerminalPresets(rawPresets);
+
+	if (shouldPersistNormalizedTerminalPresets(rawPresets)) {
+		saveTerminalPresets(normalizedPresets);
+	}
+
+	return normalizedPresets;
 }
 
 function saveTerminalPresets(
@@ -138,6 +147,7 @@ const DEFAULT_PRESET_AGENTS = [
 	"claude",
 	"codex",
 	"copilot",
+	"mastracode",
 	"opencode",
 	"pi",
 	"gemini",
@@ -173,15 +183,16 @@ function initializeDefaultPresets() {
 	return mergedPresets;
 }
 
-/** Get presets tagged with a given auto-apply field, falling back to the isDefault preset */
+/** Get presets tagged with a given auto-apply field for the current project, falling back to all-project presets. */
 export function getPresetsForTrigger(
 	field: "applyOnWorkspaceCreated" | "applyOnNewTab",
+	projectId?: string | null,
 ) {
-	const presets = getNormalizedTerminalPresets();
-	const tagged = presets.filter((p) => p[field]);
-	if (tagged.length > 0) return tagged;
-	const defaultPreset = presets.find((p) => p.isDefault);
-	return defaultPreset ? [defaultPreset] : [];
+	return getPresetsForTriggerField(
+		getNormalizedTerminalPresets(),
+		field,
+		projectId,
+	);
 }
 
 export const createSettingsRouter = () => {
@@ -246,6 +257,7 @@ export const createSettingsRouter = () => {
 					description: z.string().optional(),
 					cwd: z.string(),
 					commands: z.array(z.string()),
+					projectIds: z.array(z.string()).nullable().optional(),
 					pinnedToBar: z.boolean().optional(),
 					executionMode: z.enum(EXECUTION_MODES).optional(),
 				}),
@@ -254,6 +266,7 @@ export const createSettingsRouter = () => {
 				const preset: TerminalPreset = {
 					id: crypto.randomUUID(),
 					...input,
+					projectIds: normalizePresetProjectIds(input.projectIds),
 					executionMode: input.executionMode ?? "new-tab",
 				};
 
@@ -274,6 +287,7 @@ export const createSettingsRouter = () => {
 						description: z.string().optional(),
 						cwd: z.string().optional(),
 						commands: z.array(z.string()).optional(),
+						projectIds: z.array(z.string()).nullable().optional(),
 						pinnedToBar: z.boolean().optional(),
 						executionMode: z.enum(EXECUTION_MODES).optional(),
 					}),
@@ -296,6 +310,8 @@ export const createSettingsRouter = () => {
 				if (input.patch.cwd !== undefined) preset.cwd = input.patch.cwd;
 				if (input.patch.commands !== undefined)
 					preset.commands = input.patch.commands;
+				if (input.patch.projectIds !== undefined)
+					preset.projectIds = normalizePresetProjectIds(input.patch.projectIds);
 				if (input.patch.pinnedToBar !== undefined)
 					preset.pinnedToBar = input.patch.pinnedToBar;
 				if (input.patch.executionMode !== undefined)
@@ -317,21 +333,6 @@ export const createSettingsRouter = () => {
 				return { success: true };
 			}),
 
-		setDefaultPreset: publicProcedure
-			.input(z.object({ id: z.string().nullable() }))
-			.mutation(({ input }) => {
-				const presets = getNormalizedTerminalPresets();
-
-				const updatedPresets = presets.map((p) => ({
-					...p,
-					isDefault: input.id === p.id ? true : undefined,
-				}));
-
-				saveTerminalPresets(updatedPresets);
-
-				return { success: true };
-			}),
-
 		setPresetAutoApply: publicProcedure
 			.input(
 				z.object({
@@ -346,23 +347,8 @@ export const createSettingsRouter = () => {
 				const updatedPresets = presets.map((p) => {
 					if (p.id !== input.id) return p;
 
-					// Migrate legacy isDefault preset to explicit fields on first toggle
-					const needsMigration =
-						p.isDefault &&
-						p.applyOnWorkspaceCreated === undefined &&
-						p.applyOnNewTab === undefined;
-
-					const base = needsMigration
-						? {
-								...p,
-								isDefault: undefined,
-								applyOnWorkspaceCreated: true as const,
-								applyOnNewTab: true as const,
-							}
-						: p;
-
 					return {
-						...base,
+						...p,
 						[input.field]: input.enabled ? true : undefined,
 					};
 				});
@@ -405,18 +391,32 @@ export const createSettingsRouter = () => {
 				return { success: true };
 			}),
 
-		getDefaultPreset: publicProcedure.query(() => {
-			const presets = getNormalizedTerminalPresets();
-			return presets.find((p) => p.isDefault) ?? null;
-		}),
+		getWorkspaceCreationPresets: publicProcedure
+			.input(
+				z
+					.object({
+						projectId: z.string().nullable().optional(),
+					})
+					.optional(),
+			)
+			.query(({ input }) =>
+				getPresetsForTrigger(
+					"applyOnWorkspaceCreated",
+					input?.projectId ?? null,
+				),
+			),
 
-		getWorkspaceCreationPresets: publicProcedure.query(() =>
-			getPresetsForTrigger("applyOnWorkspaceCreated"),
-		),
-
-		getNewTabPresets: publicProcedure.query(() =>
-			getPresetsForTrigger("applyOnNewTab"),
-		),
+		getNewTabPresets: publicProcedure
+			.input(
+				z
+					.object({
+						projectId: z.string().nullable().optional(),
+					})
+					.optional(),
+			)
+			.query(({ input }) =>
+				getPresetsForTrigger("applyOnNewTab", input?.projectId ?? null),
+			),
 
 		getSelectedRingtoneId: publicProcedure.query(() => {
 			const row = getSettings();

@@ -1,8 +1,16 @@
-import type { GitHubStatus } from "@superset/local-db";
+import type { GitHubStatus, PullRequestComment } from "@superset/local-db";
 import { branchExistsOnRemote } from "../git";
 import { execGitWithShellPath } from "../git-client";
 import { execWithShellEnv } from "../shell-env";
 import { parseUpstreamRef } from "../upstream-ref";
+import {
+	clearGitHubCachesForWorktree,
+	getCachedPullRequestCommentsState,
+	makePullRequestCommentsCacheKey,
+	readCachedGitHubStatus,
+	readCachedPullRequestComments,
+} from "./cache";
+import { fetchPullRequestComments } from "./comments";
 import { getPRForBranch } from "./pr-resolution";
 import { extractNwoFromUrl, getRepoContext } from "./repo-context";
 import {
@@ -11,11 +19,55 @@ import {
 	type RepoContext,
 } from "./types";
 
-const cache = new Map<string, { data: GitHubStatus; timestamp: number }>();
-const CACHE_TTL_MS = 10_000;
+export interface PullRequestCommentsTarget {
+	prNumber: number;
+	repoContext: Pick<RepoContext, "repoUrl" | "upstreamUrl" | "isFork">;
+}
 
-export function clearGitHubStatusCacheForWorktree(worktreePath: string): void {
-	cache.delete(worktreePath);
+export { clearGitHubCachesForWorktree };
+
+function getPullRequestCommentsRepoNameWithOwner(
+	target: PullRequestCommentsTarget,
+): string | null {
+	const targetUrl = target.repoContext.isFork
+		? target.repoContext.upstreamUrl
+		: target.repoContext.repoUrl;
+
+	return extractNwoFromUrl(targetUrl);
+}
+
+async function resolvePullRequestCommentsTarget(
+	worktreePath: string,
+): Promise<PullRequestCommentsTarget | null> {
+	const repoContext = await getRepoContext(worktreePath);
+	if (!repoContext) {
+		return null;
+	}
+
+	const [branchResult, shaResult] = await Promise.all([
+		execGitWithShellPath(["rev-parse", "--abbrev-ref", "HEAD"], {
+			cwd: worktreePath,
+		}),
+		execGitWithShellPath(["rev-parse", "HEAD"], {
+			cwd: worktreePath,
+		}),
+	]);
+	const branchName = branchResult.stdout.trim();
+	const headSha = shaResult.stdout.trim();
+	const prInfo = await getPRForBranch(
+		worktreePath,
+		branchName,
+		repoContext,
+		headSha,
+	);
+	if (!prInfo) {
+		return null;
+	}
+
+	return {
+		prNumber: prInfo.number,
+		repoContext,
+	};
 }
 
 export function resolveRemoteBranchNameForGitHubStatus({
@@ -30,18 +82,9 @@ export function resolveRemoteBranchNameForGitHubStatus({
 	return upstreamBranchName?.trim() || prHeadRefName?.trim() || localBranchName;
 }
 
-/**
- * Fetches GitHub PR status for a worktree using the `gh` CLI.
- * Returns null if `gh` is not installed, not authenticated, or on error.
- */
-export async function fetchGitHubPRStatus(
+async function refreshGitHubPRStatus(
 	worktreePath: string,
 ): Promise<GitHubStatus | null> {
-	const cached = cache.get(worktreePath);
-	if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-		return cached.data;
-	}
-
 	try {
 		const repoContext = await getRepoContext(worktreePath);
 		if (!repoContext) {
@@ -61,16 +104,17 @@ export async function fetchGitHubPRStatus(
 		const headSha = shaResult.stdout.trim();
 		const parsedUpstreamRef = parseUpstreamRef(upstreamResult.stdout.trim());
 		const trackingRemote = parsedUpstreamRef?.remoteName ?? "origin";
+		const previewBranchName = resolveRemoteBranchNameForGitHubStatus({
+			localBranchName: branchName,
+			upstreamBranchName: parsedUpstreamRef?.branchName,
+		});
 
 		const [prInfo, previewUrl] = await Promise.all([
 			getPRForBranch(worktreePath, branchName, repoContext, headSha),
 			fetchPreviewDeploymentUrl(
 				worktreePath,
 				headSha,
-				resolveRemoteBranchNameForGitHubStatus({
-					localBranchName: branchName,
-					upstreamBranchName: parsedUpstreamRef?.branchName,
-				}),
+				previewBranchName,
 				repoContext,
 			),
 		]);
@@ -87,8 +131,6 @@ export async function fetchGitHubPRStatus(
 			trackingRemote,
 		);
 
-		// If no preview URL found via SHA/branch, try the PR merge ref
-		// (GitHub Actions pull_request triggers use refs/pull/N/merge)
 		let finalPreviewUrl = previewUrl;
 		if (!finalPreviewUrl && prInfo?.number) {
 			const targetUrl = repoContext.isFork
@@ -114,11 +156,87 @@ export async function fetchGitHubPRStatus(
 			lastRefreshed: Date.now(),
 		};
 
-		cache.set(worktreePath, { data: result, timestamp: Date.now() });
-
 		return result;
 	} catch {
 		return null;
+	}
+}
+
+async function refreshGitHubPRComments({
+	worktreePath,
+	repoNameWithOwner,
+	pullRequestNumber,
+}: {
+	worktreePath: string;
+	repoNameWithOwner: string;
+	pullRequestNumber: number;
+}): Promise<PullRequestComment[]> {
+	return fetchPullRequestComments({
+		worktreePath,
+		repoNameWithOwner,
+		pullRequestNumber,
+	});
+}
+
+/**
+ * Fetches GitHub PR status for a worktree using the `gh` CLI.
+ * Returns null if `gh` is not installed, not authenticated, or on error.
+ */
+export async function fetchGitHubPRStatus(
+	worktreePath: string,
+): Promise<GitHubStatus | null> {
+	return readCachedGitHubStatus(worktreePath, () =>
+		refreshGitHubPRStatus(worktreePath),
+	);
+}
+
+export async function fetchGitHubPRComments({
+	worktreePath,
+	pullRequest,
+}: {
+	worktreePath: string;
+	pullRequest?: PullRequestCommentsTarget | null;
+}): Promise<PullRequestComment[]> {
+	try {
+		const pullRequestTarget =
+			pullRequest ?? (await resolvePullRequestCommentsTarget(worktreePath));
+		if (!pullRequestTarget) {
+			return [];
+		}
+
+		const repoNameWithOwner =
+			getPullRequestCommentsRepoNameWithOwner(pullRequestTarget);
+		if (!repoNameWithOwner) {
+			return [];
+		}
+
+		const cacheKey = makePullRequestCommentsCacheKey({
+			worktreePath,
+			repoNameWithOwner,
+			pullRequestNumber: pullRequestTarget.prNumber,
+		});
+		try {
+			return await readCachedPullRequestComments(cacheKey, () =>
+				refreshGitHubPRComments({
+					worktreePath,
+					repoNameWithOwner,
+					pullRequestNumber: pullRequestTarget.prNumber,
+				}),
+			);
+		} catch (error) {
+			const cached = getCachedPullRequestCommentsState(cacheKey);
+			if (cached) {
+				console.warn(
+					"[GitHub] Failed to refresh pull request comments; using cached value:",
+					error,
+				);
+				return cached.value;
+			}
+
+			throw error;
+		}
+	} catch {
+		return [];
 	}
 }
 
@@ -155,9 +273,13 @@ async function queryDeploymentUrl(
 	const deploymentIds: number[] = [];
 	for (const raw of rawDeployments) {
 		const result = GHDeploymentSchema.safeParse(raw);
-		if (result.success) deploymentIds.push(result.data.id);
+		if (result.success) {
+			deploymentIds.push(result.data.id);
+		}
 	}
-	if (deploymentIds.length === 0) return undefined;
+	if (deploymentIds.length === 0) {
+		return undefined;
+	}
 
 	const urls = await Promise.all(
 		deploymentIds.map(async (id): Promise<string | undefined> => {
@@ -172,7 +294,9 @@ async function queryDeploymentUrl(
 					return undefined;
 				}
 				const statusResult = GHDeploymentStatusSchema.safeParse(rawStatuses[0]);
-				if (!statusResult.success) return undefined;
+				if (!statusResult.success) {
+					return undefined;
+				}
 				if (
 					statusResult.data.state === "success" &&
 					statusResult.data.environment_url &&
@@ -209,11 +333,15 @@ async function fetchPreviewDeploymentUrl(
 			? repoContext.upstreamUrl
 			: repoContext.repoUrl;
 		const nwo = extractNwoFromUrl(targetUrl);
-		if (!nwo) return undefined;
+		if (!nwo) {
+			return undefined;
+		}
 
 		// Try by commit SHA (works for Vercel, Netlify official integrations)
 		const bySha = await queryDeploymentUrl(worktreePath, nwo, `sha=${headSha}`);
-		if (bySha) return bySha;
+		if (bySha) {
+			return bySha;
+		}
 
 		// Fall back to branch name (works for some CI configurations)
 		return await queryDeploymentUrl(

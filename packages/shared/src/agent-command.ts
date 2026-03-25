@@ -7,6 +7,7 @@ export const AGENT_TYPES = [
 	"claude",
 	"codex",
 	"gemini",
+	"mastracode",
 	"opencode",
 	"pi",
 	"copilot",
@@ -20,6 +21,7 @@ export const AGENT_LABELS: Record<AgentType, string> = {
 	claude: "Claude",
 	codex: "Codex",
 	gemini: "Gemini",
+	mastracode: "Mastracode",
 	opencode: "OpenCode",
 	pi: "Pi",
 	copilot: "Copilot",
@@ -33,6 +35,7 @@ export const AGENT_PRESET_COMMANDS: Record<AgentType, string[]> = {
 		'codex -c model_reasoning_effort="high" --dangerously-bypass-approvals-and-sandbox -c model_reasoning_summary="detailed" -c model_supports_reasoning_summaries=true',
 	],
 	gemini: ["gemini --yolo"],
+	mastracode: ["mastracode"],
 	opencode: ["opencode"],
 	pi: ["pi"],
 	copilot: ["copilot --allow-all"],
@@ -47,6 +50,8 @@ export const AGENT_PRESET_DESCRIPTIONS: Record<AgentType, string> = {
 		"OpenAI's coding agent for reading, modifying, and running code across tasks.",
 	gemini:
 		"Google's open-source terminal agent for coding, problem-solving, and task work.",
+	mastracode:
+		"Mastra's coding agent for building, debugging, and shipping code from the terminal.",
 	opencode: "Open-source coding agent for the terminal, IDE, and desktop.",
 	pi: "Minimal terminal coding harness for flexible coding workflows.",
 	copilot:
@@ -74,6 +79,9 @@ export const AGENT_PROMPT_COMMANDS: Record<
 	gemini: {
 		command: "gemini",
 		suffix: "--yolo",
+	},
+	mastracode: {
+		command: AGENT_PRESET_COMMANDS.mastracode[0] ?? "mastracode",
 	},
 	opencode: {
 		command: "opencode --prompt",
