@@ -158,10 +158,24 @@ export function ChatMessageList({
 
 	const hasConversationContent =
 		renderedMessages.length > 0 || Boolean(interruptedPreview);
+
+	// Once messages have been rendered, never switch back to empty/loading
+	// states. Transient empty states (e.g. from polling race conditions)
+	// would destroy all message DOM nodes and reset scroll position.
+	const hasEverHadContentRef = useRef(false);
+	if (hasConversationContent) {
+		hasEverHadContentRef.current = true;
+	}
+
 	const shouldShowConversationLoading =
-		isConversationLoading && !isAwaitingAssistant && !hasConversationContent;
+		isConversationLoading &&
+		!isAwaitingAssistant &&
+		!hasConversationContent &&
+		!hasEverHadContentRef.current;
 	const shouldShowEmptyState =
-		!shouldShowConversationLoading && !hasConversationContent;
+		!shouldShowConversationLoading &&
+		!hasConversationContent &&
+		!hasEverHadContentRef.current;
 
 	const inlineToolStateProps = {
 		pendingPlanApproval,

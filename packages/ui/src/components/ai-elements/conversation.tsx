@@ -2,7 +2,7 @@
 
 import { ArrowDownIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -10,19 +10,95 @@ import { Loader } from "./loader";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
 
-export const Conversation = ({ className, ...props }: ConversationProps) => (
-	<StickToBottom
-		className={cn("relative flex-1 overflow-y-hidden", className)}
-		initial="instant"
-		resize="instant"
-		role="log"
-		{...props}
-	/>
-);
+export function Conversation({
+	className,
+	children,
+	...props
+}: ConversationProps) {
+	return (
+		<StickToBottom
+			className={cn("relative flex-1 overflow-y-hidden", className)}
+			initial="instant"
+			resize="instant"
+			role="log"
+			{...props}
+		>
+			{(context) => (
+				<>
+					<ScrollPositionGuard />
+					{typeof children === "function" ? children(context) : children}
+				</>
+			)}
+		</StickToBottom>
+	);
+}
 
 export type ConversationContentProps = ComponentProps<
 	typeof StickToBottom.Content
 >;
+
+/**
+ * Defense-in-depth: monitors the scroll container for unexpected scroll-to-top
+ * events caused by transient content changes (e.g. message list briefly becoming
+ * empty during polling race conditions). When the user has scrolled up and a
+ * content change resets scrollTop to 0, this restores the previous position.
+ */
+function ScrollPositionGuard() {
+	const { scrollRef, isAtBottom } = useStickToBottomContext();
+	const savedScrollTopRef = useRef<number | null>(null);
+	const isAtBottomRef = useRef(isAtBottom);
+	isAtBottomRef.current = isAtBottom;
+
+	useEffect(() => {
+		const scrollElement = scrollRef.current;
+		if (!scrollElement) return;
+
+		const handleScroll = () => {
+			// Only save position when user is NOT at bottom (they've scrolled up)
+			if (!isAtBottomRef.current && scrollElement.scrollTop > 0) {
+				savedScrollTopRef.current = scrollElement.scrollTop;
+			}
+			// Clear saved position when user returns to bottom
+			if (isAtBottomRef.current) {
+				savedScrollTopRef.current = null;
+			}
+		};
+
+		scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+		return () => scrollElement.removeEventListener("scroll", handleScroll);
+	}, [scrollRef]);
+
+	useEffect(() => {
+		const scrollElement = scrollRef.current;
+		if (!scrollElement) return;
+
+		// Watch for content changes via ResizeObserver on the content child
+		const contentElement = scrollElement.firstElementChild;
+		if (!contentElement) return;
+
+		const observer = new ResizeObserver(() => {
+			// If the user had scrolled up and scrollTop was reset to 0 by a
+			// content change, restore the previous position.
+			if (
+				savedScrollTopRef.current !== null &&
+				savedScrollTopRef.current > 0 &&
+				scrollElement.scrollTop === 0 &&
+				scrollElement.scrollHeight > scrollElement.clientHeight
+			) {
+				const restoreTo = Math.min(
+					savedScrollTopRef.current,
+					scrollElement.scrollHeight - scrollElement.clientHeight,
+				);
+				scrollElement.scrollTop = restoreTo;
+			}
+		});
+
+		observer.observe(contentElement);
+		return () => observer.disconnect();
+	}, [scrollRef]);
+
+	return null;
+}
 
 export const ConversationContent = ({
 	className,

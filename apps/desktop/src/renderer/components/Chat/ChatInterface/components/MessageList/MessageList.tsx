@@ -8,7 +8,7 @@ import { Message, MessageContent } from "@superset/ui/ai-elements/message";
 import { ShimmerLabel } from "@superset/ui/ai-elements/shimmer-label";
 import type { ChatStatus, UIMessage } from "ai";
 import { FileIcon, FileTextIcon, ImageIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { HiMiniChatBubbleLeftRight } from "react-icons/hi2";
 import { FileMentionChip } from "renderer/components/Chat/components/FileMentionChip";
 import { LinkedTaskChip } from "renderer/components/Chat/components/LinkedTaskChip";
@@ -76,10 +76,19 @@ export function MessageList({
 		[workspaceId, addFileViewerPane],
 	);
 
+	// Once messages have been rendered, never switch back to empty state.
+	// Transient empty states would destroy all message DOM nodes and reset
+	// scroll position.
+	const hasContent = messages.length > 0 || Boolean(interruptedMessage);
+	const hasEverHadContentRef = useRef(false);
+	if (hasContent) {
+		hasEverHadContentRef.current = true;
+	}
+
 	return (
 		<Conversation className="flex-1">
 			<ConversationContent className="mx-auto w-full max-w-3xl gap-6 py-6 pl-4 pr-16">
-				{messages.length === 0 && !interruptedMessage ? (
+				{!hasContent && !hasEverHadContentRef.current ? (
 					<ConversationEmptyState
 						title="Start a conversation"
 						description="Ask anything to get started"

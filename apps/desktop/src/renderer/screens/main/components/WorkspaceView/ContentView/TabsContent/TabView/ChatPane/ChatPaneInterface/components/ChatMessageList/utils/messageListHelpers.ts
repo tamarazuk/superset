@@ -77,32 +77,23 @@ function toToolEntries<T>(
 	return [...value.entries()];
 }
 
-function findLastUserMessageIndex(messages: ChatMessage[]): number {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		if (messages[index]?.role === "user") return index;
-	}
-	return -1;
-}
-
+/**
+ * Returns messages suitable for rendering in the chat view.
+ *
+ * NOTE: Active-turn assistant message filtering is already performed upstream
+ * by `withoutActiveTurnAssistantHistory` in `useChatDisplay`. This function
+ * previously duplicated that filtering, which caused unnecessary array
+ * allocations on every ~16ms poll cycle and contributed to scroll position
+ * instability.
+ */
 export function getVisibleMessages({
 	messages,
-	isRunning,
-	currentMessage,
 }: {
 	messages: ChatMessage[];
 	isRunning: boolean;
 	currentMessage: ChatMessage | null;
 }): ChatMessage[] {
-	if (!isRunning || !currentMessage || currentMessage.role !== "assistant") {
-		return messages;
-	}
-	const turnStartIndex = findLastUserMessageIndex(messages) + 1;
-	const previousTurns = messages.slice(0, turnStartIndex);
-	const activeTurnNonAssistant = messages
-		.slice(turnStartIndex)
-		.filter((message) => message.role !== "assistant");
-
-	return [...previousTurns, ...activeTurnNonAssistant];
+	return messages;
 }
 
 export function getInterruptedPreview({
