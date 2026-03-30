@@ -49,7 +49,7 @@ function ScrollPositionGuard() {
 		if (!scrollElement) return;
 
 		const handleScroll = () => {
-			if (!isAtBottomRef.current && scrollElement.scrollTop > 0) {
+			if (!isAtBottomRef.current) {
 				savedScrollTopRef.current = scrollElement.scrollTop;
 			}
 			if (isAtBottomRef.current) {

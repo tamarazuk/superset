@@ -150,6 +150,11 @@ export function ChatMessageList({
 
 	// Prevent transient empty states from destroying DOM and resetting scroll.
 	const hasEverHadContentRef = useRef(false);
+	const prevSessionIdRef = useRef(sessionId);
+	if (prevSessionIdRef.current !== sessionId) {
+		prevSessionIdRef.current = sessionId;
+		hasEverHadContentRef.current = false;
+	}
 	if (hasConversationContent) {
 		hasEverHadContentRef.current = true;
 	}
