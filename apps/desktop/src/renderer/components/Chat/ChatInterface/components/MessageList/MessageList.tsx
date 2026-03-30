@@ -77,7 +77,9 @@ export function MessageList({
 	);
 
 	// Prevent transient empty states from destroying DOM and resetting scroll.
-	const hasContent = messages.length > 0 || Boolean(interruptedMessage);
+	const hasContent =
+		messages.length > 0 ||
+		Boolean(interruptedMessage && interruptedMessage.parts.length > 0);
 	const hasEverHadContentRef = useRef(false);
 	if (hasContent) {
 		hasEverHadContentRef.current = true;

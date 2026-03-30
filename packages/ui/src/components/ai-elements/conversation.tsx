@@ -39,7 +39,7 @@ export type ConversationContentProps = ComponentProps<
 
 /** Restores scroll position when transient content changes reset scrollTop to 0. */
 function ScrollPositionGuard() {
-	const { scrollRef, isAtBottom } = useStickToBottomContext();
+	const { scrollRef, contentRef, isAtBottom } = useStickToBottomContext();
 	const savedScrollTopRef = useRef<number | null>(null);
 	const isAtBottomRef = useRef(isAtBottom);
 	isAtBottomRef.current = isAtBottom;
@@ -49,11 +49,10 @@ function ScrollPositionGuard() {
 		if (!scrollElement) return;
 
 		const handleScroll = () => {
-			if (!isAtBottomRef.current) {
-				savedScrollTopRef.current = scrollElement.scrollTop;
-			}
 			if (isAtBottomRef.current) {
 				savedScrollTopRef.current = null;
+			} else {
+				savedScrollTopRef.current = scrollElement.scrollTop;
 			}
 		};
 
@@ -65,7 +64,7 @@ function ScrollPositionGuard() {
 		const scrollElement = scrollRef.current;
 		if (!scrollElement) return;
 
-		const contentElement = scrollElement.firstElementChild;
+		const contentElement = contentRef.current;
 		if (!contentElement) return;
 
 		const observer = new ResizeObserver(() => {
@@ -85,7 +84,7 @@ function ScrollPositionGuard() {
 
 		observer.observe(contentElement);
 		return () => observer.disconnect();
-	}, [scrollRef]);
+	}, [scrollRef, contentRef]);
 
 	return null;
 }
