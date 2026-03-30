@@ -127,9 +127,7 @@ export function useChatDisplay(options: UseChatDisplayOptions) {
 		refetchIntervalInBackground: true,
 		refetchOnWindowFocus: false,
 		staleTime: 0,
-		// Keep cached data for 30s after query becomes inactive.
-		// gcTime: 0 risks transient data loss between polls which can cause
-		// the message list to briefly appear empty and destroy DOM/scroll state.
+		// gcTime: 0 risks transient data loss between polls, causing scroll jumps.
 		gcTime: 30_000,
 	} as const;
 

@@ -236,8 +236,6 @@ describe("ChatMessageList", () => {
 		expect(html).not.toContain("Loading conversation...");
 	});
 
-	// hasEverHadContentRef cross-render guard requires a DOM environment to test; see ChatMessageList.tsx:165
-
 	it("shows interrupted preview content after stop and hides the source assistant message", () => {
 		const html = renderListHtml({
 			messages: [

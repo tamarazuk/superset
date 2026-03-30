@@ -37,12 +37,7 @@ export type ConversationContentProps = ComponentProps<
 	typeof StickToBottom.Content
 >;
 
-/**
- * Defense-in-depth: monitors the scroll container for unexpected scroll-to-top
- * events caused by transient content changes (e.g. message list briefly becoming
- * empty during polling race conditions). When the user has scrolled up and a
- * content change resets scrollTop to 0, this restores the previous position.
- */
+/** Restores scroll position when transient content changes reset scrollTop to 0. */
 function ScrollPositionGuard() {
 	const { scrollRef, isAtBottom } = useStickToBottomContext();
 	const savedScrollTopRef = useRef<number | null>(null);
@@ -54,11 +49,9 @@ function ScrollPositionGuard() {
 		if (!scrollElement) return;
 
 		const handleScroll = () => {
-			// Only save position when user is NOT at bottom (they've scrolled up)
 			if (!isAtBottomRef.current && scrollElement.scrollTop > 0) {
 				savedScrollTopRef.current = scrollElement.scrollTop;
 			}
-			// Clear saved position when user returns to bottom
 			if (isAtBottomRef.current) {
 				savedScrollTopRef.current = null;
 			}
@@ -72,13 +65,10 @@ function ScrollPositionGuard() {
 		const scrollElement = scrollRef.current;
 		if (!scrollElement) return;
 
-		// Watch for content changes via ResizeObserver on the content child
 		const contentElement = scrollElement.firstElementChild;
 		if (!contentElement) return;
 
 		const observer = new ResizeObserver(() => {
-			// If the user had scrolled up and scrollTop was reset to 0 by a
-			// content change, restore the previous position.
 			if (
 				savedScrollTopRef.current !== null &&
 				savedScrollTopRef.current > 0 &&

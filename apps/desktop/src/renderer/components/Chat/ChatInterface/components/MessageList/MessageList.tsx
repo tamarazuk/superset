@@ -76,9 +76,7 @@ export function MessageList({
 		[workspaceId, addFileViewerPane],
 	);
 
-	// Once messages have been rendered, never switch back to empty state.
-	// Transient empty states would destroy all message DOM nodes and reset
-	// scroll position.
+	// Prevent transient empty states from destroying DOM and resetting scroll.
 	const hasContent = messages.length > 0 || Boolean(interruptedMessage);
 	const hasEverHadContentRef = useRef(false);
 	if (hasContent) {

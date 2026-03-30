@@ -27,7 +27,6 @@ import {
 	findLatestSubmitPlanToolCallId,
 	getInterruptedPreview,
 	getStreamingPreviewToolParts,
-	getVisibleMessages,
 	removeInterruptedSourceMessage,
 	resolvePendingPlanToolCallId,
 } from "./utils/messageListHelpers";
@@ -69,16 +68,6 @@ export function ChatMessageList({
 		isFocused,
 	});
 
-	const visibleMessages = useMemo(
-		() =>
-			getVisibleMessages({
-				messages,
-				isRunning,
-				currentMessage,
-			}),
-		[currentMessage, isRunning, messages],
-	);
-
 	const interruptedPreview = useMemo(
 		() =>
 			getInterruptedPreview({
@@ -91,10 +80,10 @@ export function ChatMessageList({
 	const renderedMessages = useMemo(
 		() =>
 			removeInterruptedSourceMessage({
-				messages: visibleMessages,
+				messages,
 				interruptedMessage: interruptedPreview ? interruptedMessage : null,
 			}),
-		[interruptedMessage, interruptedPreview, visibleMessages],
+		[interruptedMessage, interruptedPreview, messages],
 	);
 
 	const previewToolParts = useMemo(
@@ -159,9 +148,7 @@ export function ChatMessageList({
 	const hasConversationContent =
 		renderedMessages.length > 0 || Boolean(interruptedPreview);
 
-	// Once messages have been rendered, never switch back to empty/loading
-	// states. Transient empty states (e.g. from polling race conditions)
-	// would destroy all message DOM nodes and reset scroll position.
+	// Prevent transient empty states from destroying DOM and resetting scroll.
 	const hasEverHadContentRef = useRef(false);
 	if (hasConversationContent) {
 		hasEverHadContentRef.current = true;
