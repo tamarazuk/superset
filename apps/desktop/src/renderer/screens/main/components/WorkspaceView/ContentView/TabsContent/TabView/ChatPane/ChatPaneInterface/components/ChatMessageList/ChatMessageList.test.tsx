@@ -210,6 +210,34 @@ describe("ChatMessageList", () => {
 		expect(html).not.toContain("Start a conversation");
 	});
 
+	it("shows empty state on initial render with no messages", () => {
+		const html = renderListHtml({
+			messages: [] as never,
+		});
+
+		expect(html).toContain("Start a conversation");
+		expect(html).not.toContain("Loading conversation...");
+	});
+
+	it("renders messages instead of empty state when messages are provided", () => {
+		const html = renderListHtml({
+			messages: [
+				testMessage(
+					"user-1",
+					"user",
+					"hello world",
+					"2026-03-30T00:00:00.000Z",
+				),
+			] as never,
+		});
+
+		expect(html).toContain("hello world");
+		expect(html).not.toContain("Start a conversation");
+		expect(html).not.toContain("Loading conversation...");
+	});
+
+	// hasEverHadContentRef cross-render guard requires a DOM environment to test; see ChatMessageList.tsx:165
+
 	it("shows interrupted preview content after stop and hides the source assistant message", () => {
 		const html = renderListHtml({
 			messages: [
