@@ -1,6 +1,32 @@
-import { describe, expect, it, mock } from "bun:test";
-import { forwardRef } from "react";
+import { afterEach, describe, expect, it, mock } from "bun:test";
+import type { RefObject } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+
+const actualReact: typeof import("react") = await import("react");
+const { forwardRef } = actualReact;
+
+let currentHookIndex = 0;
+let hookRefState: unknown[] = [];
+
+const mockUseMemo = (<T,>(factory: () => T) =>
+	factory()) as typeof actualReact.useMemo;
+const mockUseRef = (<T,>(initialValue: T): RefObject<T> => {
+	const hookIndex = currentHookIndex++;
+	const existingRef = hookRefState[hookIndex] as RefObject<T> | undefined;
+	if (existingRef) {
+		return existingRef;
+	}
+
+	const ref = { current: initialValue };
+	hookRefState[hookIndex] = ref;
+	return ref;
+}) as typeof actualReact.useRef;
+
+mock.module("react", () => ({
+	...actualReact,
+	useMemo: mockUseMemo,
+	useRef: mockUseRef,
+}));
 
 mock.module("@superset/ui/ai-elements/conversation", () => ({
 	Conversation: ({
@@ -209,11 +235,35 @@ function createBaseProps(
 	};
 }
 
-function renderListHtml(overrides: Partial<ChatMessageListProps> = {}): string {
-	return renderToStaticMarkup(
-		<ChatMessageList {...createBaseProps(overrides)} />,
-	);
+function resetHookState() {
+	currentHookIndex = 0;
 }
+
+function createRenderHarness(
+	initialOverrides: Partial<ChatMessageListProps> = {},
+) {
+	let currentProps = createBaseProps(initialOverrides);
+
+	return {
+		render(overrides: Partial<ChatMessageListProps> = {}) {
+			currentProps = createBaseProps({
+				...currentProps,
+				...overrides,
+			});
+			resetHookState();
+			return renderToStaticMarkup(ChatMessageList(currentProps));
+		},
+	};
+}
+
+function renderListHtml(overrides: Partial<ChatMessageListProps> = {}): string {
+	return createRenderHarness().render(overrides);
+}
+
+afterEach(() => {
+	currentHookIndex = 0;
+	hookRefState = [];
+});
 
 describe("ChatMessageList", () => {
 	it("opts into scroll reset preservation and passes the session identity", () => {
@@ -241,6 +291,54 @@ describe("ChatMessageList", () => {
 
 		expect(html).toContain("Start a conversation");
 		expect(html).not.toContain("Loading conversation...");
+	});
+
+	it("keeps the conversation mounted through a transient reset in the same session", () => {
+		const harness = createRenderHarness({
+			messages: [
+				testMessage(
+					"user-1",
+					"user",
+					"hello world",
+					"2026-03-30T00:00:00.000Z",
+				),
+			] as never,
+		});
+
+		harness.render();
+
+		const html = harness.render({
+			messages: [] as never,
+			sessionId: "session-1",
+		});
+
+		expect(html).not.toContain("Start a conversation");
+		expect(html).not.toContain("Loading conversation...");
+	});
+
+	it("shows empty state again after the session changes", () => {
+		const harness = createRenderHarness({
+			messages: [
+				testMessage(
+					"user-1",
+					"user",
+					"hello world",
+					"2026-03-30T00:00:00.000Z",
+				),
+			] as never,
+			sessionId: "session-1",
+		});
+
+		harness.render();
+
+		const html = harness.render({
+			messages: [] as never,
+			sessionId: "session-2",
+		});
+
+		expect(html).toContain("Start a conversation");
+		expect(html).not.toContain("Loading conversation...");
+		expect(html).toContain('data-scroll-restore-key="session-2"');
 	});
 
 	it("renders messages instead of empty state when messages are provided", () => {
