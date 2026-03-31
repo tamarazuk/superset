@@ -3,9 +3,13 @@ import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 mock.module("@superset/ui/ai-elements/conversation", () => ({
-	Conversation: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
+	Conversation: ({
+		children,
+		scrollRestoreKey,
+	}: {
+		children: React.ReactNode;
+		scrollRestoreKey?: string | null;
+	}) => <div data-scroll-restore-key={scrollRestoreKey ?? ""}>{children}</div>,
 	ConversationContent: forwardRef<
 		HTMLDivElement,
 		{ children: React.ReactNode }
@@ -201,6 +205,14 @@ function renderListHtml(overrides: Partial<ChatMessageListProps> = {}): string {
 }
 
 describe("ChatMessageList", () => {
+	it("passes session identity to the conversation scroll reset key", () => {
+		const html = renderListHtml({
+			sessionId: "session-42",
+		});
+
+		expect(html).toContain('data-scroll-restore-key="session-42"');
+	});
+
 	it("shows loading state while conversation history is loading", () => {
 		const html = renderListHtml({
 			isConversationLoading: true,

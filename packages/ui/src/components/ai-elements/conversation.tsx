@@ -1,18 +1,23 @@
 "use client";
 
 import { ArrowDownIcon } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Loader } from "./loader";
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>;
+type ScrollRestoreKey = string | number | null;
+
+export type ConversationProps = ComponentProps<typeof StickToBottom> & {
+	scrollRestoreKey?: ScrollRestoreKey;
+};
 
 export function Conversation({
 	className,
 	children,
+	scrollRestoreKey,
 	...props
 }: ConversationProps) {
 	return (
@@ -25,7 +30,7 @@ export function Conversation({
 		>
 			{(context) => (
 				<>
-					<ScrollPositionGuard />
+					<ScrollPositionGuard scrollRestoreKey={scrollRestoreKey} />
 					{typeof children === "function" ? children(context) : children}
 				</>
 			)}
@@ -38,11 +43,20 @@ export type ConversationContentProps = ComponentProps<
 >;
 
 /** Restores scroll position when transient content changes reset scrollTop to 0. */
-function ScrollPositionGuard() {
+function ScrollPositionGuard({
+	scrollRestoreKey,
+}: {
+	scrollRestoreKey?: ScrollRestoreKey;
+}) {
 	const { scrollRef, contentRef, isAtBottom } = useStickToBottomContext();
 	const savedScrollTopRef = useRef<number | null>(null);
 	const isAtBottomRef = useRef(isAtBottom);
+	const prevScrollRestoreKeyRef = useRef(scrollRestoreKey);
 	isAtBottomRef.current = isAtBottom;
+	if (prevScrollRestoreKeyRef.current !== scrollRestoreKey) {
+		prevScrollRestoreKeyRef.current = scrollRestoreKey;
+		savedScrollTopRef.current = null;
+	}
 
 	useEffect(() => {
 		const scrollElement = scrollRef.current;
@@ -69,6 +83,7 @@ function ScrollPositionGuard() {
 
 		const observer = new ResizeObserver(() => {
 			if (
+				!isAtBottomRef.current &&
 				savedScrollTopRef.current !== null &&
 				savedScrollTopRef.current > 0 &&
 				scrollElement.scrollTop === 0 &&
@@ -102,7 +117,7 @@ export const ConversationContent = ({
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
 	title?: string;
 	description?: string;
-	icon?: React.ReactNode;
+	icon?: ReactNode;
 };
 
 type ConversationStateContainerProps = ComponentProps<"div">;
@@ -148,7 +163,7 @@ export const ConversationEmptyState = ({
 
 export type ConversationLoadingStateProps = ComponentProps<"div"> & {
 	label?: string;
-	icon?: React.ReactNode;
+	icon?: ReactNode;
 };
 
 export const ConversationLoadingState = ({
