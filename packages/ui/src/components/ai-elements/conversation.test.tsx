@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type {
 	DependencyList,
 	EffectCallback,
@@ -33,11 +33,13 @@ type StickToBottomProps = {
 const observeCalls: Element[] = [];
 const contentElement = {} as Element;
 const actualReact: typeof import("react") = await import("react");
+const originalResizeObserver = globalThis.ResizeObserver;
 let currentScrollListener: (() => void) | null = null;
 let currentResizeObserverCallback: ResizeObserverCallback | null = null;
 let currentHookIndex = 0;
 let currentIsAtBottom = false;
 let hookRefState: unknown[] = [];
+let shouldExpectResizeObserverRestored = false;
 let effectState: Array<{
 	deps: DependencyList | undefined;
 	cleanup?: (() => void) | undefined;
@@ -187,6 +189,15 @@ function renderConversation(
 
 afterEach(() => {
 	resetHarnessState();
+	globalThis.ResizeObserver = originalResizeObserver;
+	if (shouldExpectResizeObserverRestored) {
+		shouldExpectResizeObserverRestored = false;
+		expect(globalThis.ResizeObserver).toBe(originalResizeObserver);
+	}
+});
+
+beforeEach(() => {
+	globalThis.ResizeObserver = MockResizeObserver;
 });
 
 describe("Conversation", () => {
@@ -213,6 +224,10 @@ describe("Conversation", () => {
 		} as unknown as RenderConversationProps);
 
 		expect(observeCalls).toHaveLength(0);
+	});
+
+	it("restores the original ResizeObserver after each test", () => {
+		shouldExpectResizeObserverRestored = true;
 	});
 
 	it("restores the saved scrollTop after a transient resize reset when the user is scrolled up", () => {
