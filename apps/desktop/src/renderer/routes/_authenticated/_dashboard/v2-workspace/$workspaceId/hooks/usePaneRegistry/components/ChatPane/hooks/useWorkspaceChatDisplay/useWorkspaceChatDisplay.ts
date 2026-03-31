@@ -15,6 +15,26 @@ function toRefetchIntervalMs(fps: number): number {
 	return Math.max(16, Math.floor(1000 / fps));
 }
 
+export function createChatDisplayQueryOptions({
+	isQueryEnabled,
+	hasQueryInput,
+	refetchIntervalMs,
+}: {
+	isQueryEnabled: boolean;
+	hasQueryInput: boolean;
+	refetchIntervalMs: number;
+}) {
+	return {
+		enabled: isQueryEnabled && hasQueryInput,
+		refetchInterval: refetchIntervalMs,
+		refetchIntervalInBackground: true,
+		refetchOnWindowFocus: false,
+		staleTime: 0,
+		// gcTime: 0 risks transient data loss between polls, causing scroll jumps.
+		gcTime: 30_000,
+	} as const;
+}
+
 type RouterInputs = inferRouterInputs<AppRouter>;
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type ChatInputs = RouterInputs["chat"];
@@ -114,14 +134,11 @@ export function useChatDisplay(options: UseChatDisplayOptions) {
 		sessionId === null ? undefined : { sessionId, workspaceId };
 	const isQueryEnabled = enabled && Boolean(sessionId);
 	const refetchIntervalMs = toRefetchIntervalMs(fps);
-	const queryOptions = {
-		enabled: isQueryEnabled && queryInput !== undefined,
-		refetchInterval: refetchIntervalMs,
-		refetchIntervalInBackground: true,
-		refetchOnWindowFocus: false,
-		staleTime: 0,
-		gcTime: 0,
-	} as const;
+	const queryOptions = createChatDisplayQueryOptions({
+		isQueryEnabled,
+		hasQueryInput: queryInput !== undefined,
+		refetchIntervalMs,
+	});
 
 	const displayQuery = workspaceTrpc.chat.getDisplayState.useQuery(
 		queryInput as { sessionId: string; workspaceId: string },
