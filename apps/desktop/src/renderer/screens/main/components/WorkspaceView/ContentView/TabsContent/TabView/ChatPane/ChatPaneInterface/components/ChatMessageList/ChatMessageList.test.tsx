@@ -5,11 +5,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 mock.module("@superset/ui/ai-elements/conversation", () => ({
 	Conversation: ({
 		children,
+		preserveScrollOnTransientReset,
 		scrollRestoreKey,
 	}: {
 		children: React.ReactNode;
+		preserveScrollOnTransientReset?: boolean;
 		scrollRestoreKey?: string | null;
-	}) => <div data-scroll-restore-key={scrollRestoreKey ?? ""}>{children}</div>,
+	}) => (
+		<div
+			data-preserve-scroll-on-reset={String(
+				preserveScrollOnTransientReset ?? false,
+			)}
+			data-scroll-restore-key={scrollRestoreKey ?? ""}
+		>
+			{children}
+		</div>
+	),
 	ConversationContent: forwardRef<
 		HTMLDivElement,
 		{ children: React.ReactNode }
@@ -205,11 +216,12 @@ function renderListHtml(overrides: Partial<ChatMessageListProps> = {}): string {
 }
 
 describe("ChatMessageList", () => {
-	it("passes session identity to the conversation scroll reset key", () => {
+	it("opts into scroll reset preservation and passes the session identity", () => {
 		const html = renderListHtml({
 			sessionId: "session-42",
 		});
 
+		expect(html).toContain('data-preserve-scroll-on-reset="true"');
 		expect(html).toContain('data-scroll-restore-key="session-42"');
 	});
 

@@ -8,18 +8,34 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Loader } from "./loader";
 
-type ScrollRestoreKey = string | number | null;
+type ScrollRestoreKey = string | number;
 
-export type ConversationProps = ComponentProps<typeof StickToBottom> & {
-	scrollRestoreKey?: ScrollRestoreKey;
+type ConversationTransientResetDisabledProps = {
+	preserveScrollOnTransientReset?: false;
+	scrollRestoreKey?: never;
 };
+
+type ConversationTransientResetEnabledProps = {
+	preserveScrollOnTransientReset: true;
+	scrollRestoreKey: ScrollRestoreKey;
+};
+
+export type ConversationProps = ComponentProps<typeof StickToBottom> &
+	(
+		| ConversationTransientResetDisabledProps
+		| ConversationTransientResetEnabledProps
+	);
 
 export function Conversation({
 	className,
 	children,
 	scrollRestoreKey,
+	preserveScrollOnTransientReset,
 	...props
 }: ConversationProps) {
+	const shouldPreserveScrollOnTransientReset =
+		preserveScrollOnTransientReset && scrollRestoreKey != null;
+
 	return (
 		<StickToBottom
 			className={cn("relative flex-1 overflow-y-hidden", className)}
@@ -30,7 +46,9 @@ export function Conversation({
 		>
 			{(context) => (
 				<>
-					<ScrollPositionGuard scrollRestoreKey={scrollRestoreKey} />
+					{shouldPreserveScrollOnTransientReset ? (
+						<ScrollPositionGuard scrollRestoreKey={scrollRestoreKey} />
+					) : null}
 					{typeof children === "function" ? children(context) : children}
 				</>
 			)}
@@ -46,7 +64,7 @@ export type ConversationContentProps = ComponentProps<
 function ScrollPositionGuard({
 	scrollRestoreKey,
 }: {
-	scrollRestoreKey?: ScrollRestoreKey;
+	scrollRestoreKey: ScrollRestoreKey;
 }) {
 	const { scrollRef, contentRef, isAtBottom } = useStickToBottomContext();
 	const savedScrollTopRef = useRef<number | null>(null);

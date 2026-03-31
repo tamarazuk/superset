@@ -175,9 +175,15 @@ export function ChatMessageList({
 		isPlanSubmitting,
 		onPlanRespond,
 	} as const;
+	const scrollPreservationProps = sessionId
+		? ({
+				preserveScrollOnTransientReset: true,
+				scrollRestoreKey: sessionId,
+			} as const)
+		: {};
 
 	return (
-		<Conversation className="flex-1" scrollRestoreKey={sessionId}>
+		<Conversation className="flex-1" {...scrollPreservationProps}>
 			<ConversationContent className="mx-auto w-full max-w-[680px] py-6">
 				<div ref={messageListRef} className="flex flex-col gap-6">
 					{shouldShowConversationLoading ? (
