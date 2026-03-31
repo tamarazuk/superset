@@ -7,6 +7,7 @@ import {
 } from "@superset/ui/ai-elements/conversation";
 import { useMemo, useRef } from "react";
 import { HiMiniChatBubbleLeftRight } from "react-icons/hi2";
+import { useConversationScrollPreservation } from "renderer/components/Chat/ChatInterface/hooks/useConversationScrollPreservation";
 import type {
 	ChatMessage,
 	ChatMessageListProps,
@@ -148,26 +149,16 @@ export function ChatMessageList({
 	const hasConversationContent =
 		renderedMessages.length > 0 || Boolean(interruptedPreview);
 
-	// Prevent transient empty states from destroying DOM and resetting scroll.
-	const hasEverHadContentRef = useRef(false);
-	const prevSessionIdRef = useRef(sessionId);
-	if (prevSessionIdRef.current !== sessionId) {
-		prevSessionIdRef.current = sessionId;
-		hasEverHadContentRef.current = false;
-	}
-	if (hasConversationContent) {
-		hasEverHadContentRef.current = true;
-	}
-
-	const shouldShowConversationLoading =
-		isConversationLoading &&
-		!isAwaitingAssistant &&
-		!hasConversationContent &&
-		!hasEverHadContentRef.current;
-	const shouldShowEmptyState =
-		!shouldShowConversationLoading &&
-		!hasConversationContent &&
-		!hasEverHadContentRef.current;
+	const {
+		scrollPreservationProps,
+		shouldShowConversationLoading,
+		shouldShowEmptyState,
+	} = useConversationScrollPreservation({
+		hasConversationContent,
+		isAwaitingAssistant,
+		isConversationLoading,
+		sessionId,
+	});
 
 	const inlineToolStateProps = {
 		pendingPlanApproval,
@@ -175,12 +166,6 @@ export function ChatMessageList({
 		isPlanSubmitting,
 		onPlanRespond,
 	} as const;
-	const scrollPreservationProps = sessionId
-		? ({
-				preserveScrollOnTransientReset: true,
-				scrollRestoreKey: sessionId,
-			} as const)
-		: {};
 
 	return (
 		<Conversation className="flex-1" {...scrollPreservationProps}>
