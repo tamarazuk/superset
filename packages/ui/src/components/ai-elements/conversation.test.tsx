@@ -32,6 +32,7 @@ type StickToBottomProps = {
 
 const observeCalls: Element[] = [];
 const contentElement = {} as Element;
+const contentRef: RefObject<Element> = { current: contentElement };
 const actualReact: typeof import("react") = await import("react");
 const originalResizeObserver = globalThis.ResizeObserver;
 let currentScrollListener: (() => void) | null = null;
@@ -58,6 +59,7 @@ const scrollElement: MockScrollElement = {
 	scrollHeight: 400,
 	scrollTop: 0,
 };
+const scrollRef: RefObject<MockScrollElement> = { current: scrollElement };
 
 class MockResizeObserver implements ResizeObserver {
 	constructor(readonly callback: ResizeObserverCallback) {
@@ -125,16 +127,14 @@ mock.module("react", () => ({
 mock.module("use-stick-to-bottom", () => ({
 	StickToBottom: MockStickToBottom,
 	useStickToBottomContext: () => ({
-		contentRef: { current: contentElement },
+		contentRef,
 		isAtBottom: currentIsAtBottom,
-		scrollRef: { current: scrollElement },
+		scrollRef,
 		scrollToBottom: () => {},
 	}),
 }));
 
 const { Conversation, ConversationContent } = await import("./conversation");
-
-globalThis.ResizeObserver = MockResizeObserver;
 
 type RenderConversationProps =
 	| {
@@ -262,6 +262,25 @@ describe("Conversation", () => {
 		currentResizeObserverCallback?.([], {} as ResizeObserver);
 
 		expect(scrollElement.scrollTop).toBe(0);
+	});
+
+	it("does not resubscribe scroll and resize handlers across rerenders with the same key", () => {
+		renderConversation({
+			preserveScrollOnTransientReset: true,
+			scrollRestoreKey: "session-1",
+		});
+
+		const initialScrollListener = currentScrollListener;
+		const initialResizeObserverCallback = currentResizeObserverCallback;
+
+		renderConversation({
+			preserveScrollOnTransientReset: true,
+			scrollRestoreKey: "session-1",
+		});
+
+		expect(observeCalls).toHaveLength(0);
+		expect(currentScrollListener).toBe(initialScrollListener);
+		expect(currentResizeObserverCallback).toBe(initialResizeObserverCallback);
 	});
 
 	it("clears saved scroll state when the user returns to the bottom", () => {
