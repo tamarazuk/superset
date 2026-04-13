@@ -106,6 +106,32 @@ describe("useConversationScrollPreservation", () => {
 		});
 	});
 
+	it("latches content immediately when a new session already has content", () => {
+		useRenderedHook({
+			hasConversationContent: true,
+			isAwaitingAssistant: false,
+			isConversationLoading: false,
+			sessionId: "session-1",
+		});
+
+		useRenderedHook({
+			hasConversationContent: true,
+			isAwaitingAssistant: false,
+			isConversationLoading: false,
+			sessionId: "session-2",
+		});
+
+		const result = useRenderedHook({
+			hasConversationContent: false,
+			isAwaitingAssistant: false,
+			isConversationLoading: false,
+			sessionId: "session-2",
+		});
+
+		expect(result.shouldShowConversationLoading).toBe(false);
+		expect(result.shouldShowEmptyState).toBe(false);
+	});
+
 	it("does not persist content from an abandoned render", () => {
 		useRenderedHook(
 			{

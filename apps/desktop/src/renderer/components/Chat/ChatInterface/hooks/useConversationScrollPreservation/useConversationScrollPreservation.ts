@@ -17,7 +17,7 @@ export function useConversationScrollPreservation({
 	const prevSessionIdRef = useRef(sessionId);
 	const sessionChanged = prevSessionIdRef.current !== sessionId;
 	const hasEverHadContent =
-		!sessionChanged && (hasEverHadContentRef.current || hasConversationContent);
+		hasConversationContent || (!sessionChanged && hasEverHadContentRef.current);
 
 	useLayoutEffect(() => {
 		prevSessionIdRef.current = sessionId;
