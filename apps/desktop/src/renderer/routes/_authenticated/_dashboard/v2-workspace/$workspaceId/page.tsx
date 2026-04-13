@@ -7,29 +7,32 @@ import {
 } from "@superset/ui/resizable";
 import { eq } from "@tanstack/db";
 import { useLiveQuery } from "@tanstack/react-db";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useMemo, useState } from "react";
 import { HiMiniXMark } from "react-icons/hi2";
 import { TbLayoutColumns, TbLayoutRows } from "react-icons/tb";
-import { HotkeyTooltipContent } from "renderer/components/HotkeyTooltipContent";
-import { electronTrpc } from "renderer/lib/electron-trpc";
+import { HotkeyLabel, useHotkey } from "renderer/hotkeys";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
-import {
-	CommandPalette,
-	useCommandPalette,
-} from "renderer/screens/main/components/CommandPalette";
-import { PresetsBar } from "renderer/screens/main/components/WorkspaceView/ContentView/components/PresetsBar";
-import { useAppHotkey } from "renderer/stores/hotkeys";
+import { CommandPalette } from "renderer/screens/main/components/CommandPalette";
 import { useStore } from "zustand";
 import { AddTabMenu } from "./components/AddTabMenu";
-import { RightSidebar } from "./components/RightSidebar";
+import { V2PresetsBar } from "./components/V2PresetsBar";
 import { WorkspaceEmptyState } from "./components/WorkspaceEmptyState";
 import { WorkspaceNotFoundState } from "./components/WorkspaceNotFoundState";
+import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import { useDefaultContextMenuActions } from "./hooks/useDefaultContextMenuActions";
 import { usePaneRegistry } from "./hooks/usePaneRegistry";
+import {
+	getBrowserTabTitle,
+	renderBrowserTabIcon,
+} from "./hooks/usePaneRegistry/components/BrowserPane";
+import { useV2PresetExecution } from "./hooks/useV2PresetExecution";
 import { useV2WorkspacePaneLayout } from "./hooks/useV2WorkspacePaneLayout";
+import { useWorkspaceHotkeys } from "./hooks/useWorkspaceHotkeys";
 import type {
 	BrowserPaneData,
 	ChatPaneData,
+	DiffPaneData,
 	FilePaneData,
 	PaneViewerData,
 	TerminalPaneData,
@@ -80,34 +83,17 @@ function WorkspaceContent({
 	workspaceId: string;
 	workspaceName: string;
 }) {
-	const navigate = useNavigate();
 	const { localWorkspaceState, store } = useV2WorkspacePaneLayout({
 		projectId,
 		workspaceId,
 	});
+	const { matchedPresets, executePreset } = useV2PresetExecution({
+		store,
+		workspaceId,
+		projectId,
+	});
 	const paneRegistry = usePaneRegistry(workspaceId);
-
-	const utils = electronTrpc.useUtils();
-	const { data: showPresetsBar, isLoading: isLoadingPresetsBar } =
-		electronTrpc.settings.getShowPresetsBar.useQuery();
-	const setShowPresetsBar = electronTrpc.settings.setShowPresetsBar.useMutation(
-		{
-			onMutate: async ({ enabled }) => {
-				await utils.settings.getShowPresetsBar.cancel();
-				const previous = utils.settings.getShowPresetsBar.getData();
-				utils.settings.getShowPresetsBar.setData(undefined, enabled);
-				return { previous };
-			},
-			onError: (_error, _variables, context) => {
-				if (context?.previous !== undefined) {
-					utils.settings.getShowPresetsBar.setData(undefined, context.previous);
-				}
-			},
-			onSettled: () => {
-				utils.settings.getShowPresetsBar.invalidate();
-			},
-		},
-	);
+	const defaultContextMenuActions = useDefaultContextMenuActions();
 
 	const selectedFilePath = useStore(store, (s) => {
 		const tab = s.tabs.find((t) => t.id === s.activeTabId);
@@ -118,8 +104,24 @@ function WorkspaceContent({
 	});
 
 	const openFilePane = useCallback(
-		(filePath: string) => {
+		(filePath: string, openInNewTab?: boolean) => {
 			const state = store.getState();
+			if (openInNewTab) {
+				state.addTab({
+					titleOverride: filePath.split(/[/\\]/).pop(),
+					panes: [
+						{
+							kind: "file",
+							data: {
+								filePath,
+								mode: "editor",
+								hasChanges: false,
+							} as FilePaneData,
+						},
+					],
+				});
+				return;
+			}
 			const active = state.getActivePane();
 			if (
 				active?.pane.kind === "file" &&
@@ -143,6 +145,39 @@ function WorkspaceContent({
 		[store],
 	);
 
+	const openDiffPane = useCallback(
+		(filePath: string) => {
+			const state = store.getState();
+			const activeTab = state.tabs.find((t) => t.id === state.activeTabId);
+			if (activeTab) {
+				for (const pane of Object.values(activeTab.panes)) {
+					if (pane.kind !== "diff") continue;
+					const prev = pane.data as DiffPaneData;
+					state.setPaneData({
+						paneId: pane.id,
+						data: {
+							...prev,
+							path: filePath,
+						} as PaneViewerData,
+					});
+					state.setActivePane({ tabId: activeTab.id, paneId: pane.id });
+					return;
+				}
+			}
+			state.openPane({
+				pane: {
+					kind: "diff",
+					data: {
+						path: filePath,
+						collapsedFiles: [],
+					} as DiffPaneData,
+				},
+				tabTitle: "Changes",
+			});
+		},
+		[store],
+	);
+
 	const addTerminalTab = useCallback(() => {
 		store.getState().addTab({
 			titleOverride: "Terminal",
@@ -150,14 +185,12 @@ function WorkspaceContent({
 				{
 					kind: "terminal",
 					data: {
-						sessionKey: `${workspaceId}:${crypto.randomUUID()}`,
-						cwd: `/workspace/${workspaceName}`,
-						launchMode: "workspace-shell",
+						terminalId: crypto.randomUUID(),
 					} as TerminalPaneData,
 				},
 			],
 		});
-	}, [store, workspaceId, workspaceName]);
+	}, [store]);
 
 	const addChatTab = useCallback(() => {
 		store.getState().addTab({
@@ -178,33 +211,15 @@ function WorkspaceContent({
 				{
 					kind: "browser",
 					data: {
-						url: "http://localhost:3000",
-						mode: "preview",
+						url: "about:blank",
 					} as BrowserPaneData,
 				},
 			],
 		});
 	}, [store]);
 
-	const commandPalette = useCommandPalette({
-		workspaceId,
-		navigate,
-		onSelectFile: ({ close, filePath, targetWorkspaceId }) => {
-			close();
-			if (targetWorkspaceId !== workspaceId) {
-				void navigate({
-					to: "/v2-workspace/$workspaceId",
-					params: { workspaceId: targetWorkspaceId },
-				});
-				return;
-			}
-			openFilePane(filePath);
-		},
-	});
-
-	const handleQuickOpen = useCallback(() => {
-		commandPalette.toggle();
-	}, [commandPalette]);
+	const [quickOpenOpen, setQuickOpenOpen] = useState(false);
+	const handleQuickOpen = useCallback(() => setQuickOpenOpen(true), []);
 
 	const defaultPaneActions = useMemo<PaneActionConfig<PaneViewerData>[]>(
 		() => [
@@ -216,18 +231,14 @@ function WorkspaceContent({
 					) : (
 						<TbLayoutColumns className="size-3.5" />
 					),
-				tooltip: (
-					<HotkeyTooltipContent label="Split pane" hotkeyId="SPLIT_AUTO" />
-				),
+				tooltip: <HotkeyLabel label="Split pane" id="SPLIT_AUTO" />,
 				onClick: (ctx) => {
 					const position =
 						ctx.pane.parentDirection === "horizontal" ? "down" : "right";
 					ctx.actions.split(position, {
 						kind: "terminal",
 						data: {
-							sessionKey: `${workspaceId}:${crypto.randomUUID()}`,
-							cwd: `/workspace/${workspaceName}`,
-							launchMode: "workspace-shell",
+							terminalId: crypto.randomUUID(),
 						} as TerminalPaneData,
 					});
 				},
@@ -235,29 +246,17 @@ function WorkspaceContent({
 			{
 				key: "close",
 				icon: <HiMiniXMark className="size-3.5" />,
-				tooltip: (
-					<HotkeyTooltipContent label="Close pane" hotkeyId="CLOSE_TERMINAL" />
-				),
+				tooltip: <HotkeyLabel label="Close pane" id="CLOSE_TERMINAL" />,
 				onClick: (ctx) => ctx.actions.close(),
 			},
 		],
-		[workspaceId, workspaceName],
+		[],
 	);
 
-	const collections = useCollections();
 	const sidebarOpen = localWorkspaceState?.rightSidebarOpen ?? false;
-	const toggleSidebar = useCallback(() => {
-		if (!collections.v2WorkspaceLocalState.get(workspaceId)) return;
-		collections.v2WorkspaceLocalState.update(workspaceId, (draft) => {
-			draft.rightSidebarOpen = !draft.rightSidebarOpen;
-		});
-	}, [collections, workspaceId]);
 
-	useAppHotkey("TOGGLE_SIDEBAR", toggleSidebar, undefined, [toggleSidebar]);
-	useAppHotkey("NEW_GROUP", addTerminalTab, undefined, [addTerminalTab]);
-	useAppHotkey("NEW_CHAT", addChatTab, undefined, [addChatTab]);
-	useAppHotkey("NEW_BROWSER", addBrowserTab, undefined, [addBrowserTab]);
-	useAppHotkey("QUICK_OPEN", handleQuickOpen, undefined, [handleQuickOpen]);
+	useWorkspaceHotkeys({ store, workspaceId, matchedPresets, executePreset });
+	useHotkey("QUICK_OPEN", handleQuickOpen);
 
 	return (
 		<>
@@ -267,19 +266,23 @@ function WorkspaceContent({
 						className="flex min-h-0 min-w-0 h-full flex-col overflow-hidden"
 						data-workspace-id={workspaceId}
 					>
-						{!isLoadingPresetsBar && showPresetsBar ? <PresetsBar /> : null}
 						<Workspace<PaneViewerData>
 							registry={paneRegistry}
 							paneActions={defaultPaneActions}
+							contextMenuActions={defaultContextMenuActions}
+							getTabTitle={getBrowserTabTitle}
+							renderTabIcon={renderBrowserTabIcon}
+							renderBelowTabBar={() => (
+								<V2PresetsBar
+									matchedPresets={matchedPresets}
+									executePreset={executePreset}
+								/>
+							)}
 							renderAddTabMenu={() => (
 								<AddTabMenu
 									onAddTerminal={addTerminalTab}
 									onAddChat={addChatTab}
 									onAddBrowser={addBrowserTab}
-									showPresetsBar={showPresetsBar ?? false}
-									onTogglePresetsBar={(enabled) =>
-										setShowPresetsBar.mutate({ enabled })
-									}
 								/>
 							)}
 							renderEmptyState={() => (
@@ -339,9 +342,12 @@ function WorkspaceContent({
 					<>
 						<ResizableHandle />
 						<ResizablePanel defaultSize={20} minSize={15} maxSize={40}>
-							<RightSidebar
+							<WorkspaceSidebar
 								workspaceId={workspaceId}
+								workspaceName={workspaceName}
 								onSelectFile={openFilePane}
+								onSelectDiffFile={openDiffPane}
+								onSearch={handleQuickOpen}
 								selectedFilePath={selectedFilePath}
 							/>
 						</ResizablePanel>
@@ -349,22 +355,11 @@ function WorkspaceContent({
 				)}
 			</ResizablePanelGroup>
 			<CommandPalette
-				excludePattern={commandPalette.excludePattern}
-				filtersOpen={commandPalette.filtersOpen}
-				includePattern={commandPalette.includePattern}
-				isLoading={commandPalette.isFetching}
-				onExcludePatternChange={commandPalette.setExcludePattern}
-				onFiltersOpenChange={commandPalette.setFiltersOpen}
-				onIncludePatternChange={commandPalette.setIncludePattern}
-				onOpenChange={commandPalette.handleOpenChange}
-				onQueryChange={commandPalette.setQuery}
-				onScopeChange={commandPalette.setScope}
-				onSelectFile={commandPalette.selectFile}
-				open={commandPalette.open}
-				query={commandPalette.query}
-				scope={commandPalette.scope}
-				searchResults={commandPalette.searchResults}
-				workspaceName={workspaceName}
+				workspaceId={workspaceId}
+				open={quickOpenOpen}
+				onOpenChange={setQuickOpenOpen}
+				onSelectFile={openFilePane}
+				variant="v2"
 			/>
 		</>
 	);

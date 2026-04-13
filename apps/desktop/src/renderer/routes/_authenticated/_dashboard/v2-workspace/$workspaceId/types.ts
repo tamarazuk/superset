@@ -6,10 +6,7 @@ export interface FilePaneData {
 }
 
 export interface TerminalPaneData {
-	sessionKey: string;
-	cwd: string;
-	launchMode: "workspace-shell" | "command" | "agent";
-	command?: string;
+	terminalId: string;
 }
 
 export interface ChatPaneData {
@@ -18,7 +15,8 @@ export interface ChatPaneData {
 
 export interface BrowserPaneData {
 	url: string;
-	mode: "docs" | "preview" | "generic";
+	pageTitle?: string;
+	faviconUrl?: string | null;
 }
 
 export interface DevtoolsPaneData {
@@ -26,9 +24,15 @@ export interface DevtoolsPaneData {
 	targetTitle: string;
 }
 
+export interface DiffPaneData {
+	path: string;
+	collapsedFiles: string[];
+}
+
 export type PaneViewerData =
 	| FilePaneData
 	| TerminalPaneData
 	| ChatPaneData
 	| BrowserPaneData
-	| DevtoolsPaneData;
+	| DevtoolsPaneData
+	| DiffPaneData;

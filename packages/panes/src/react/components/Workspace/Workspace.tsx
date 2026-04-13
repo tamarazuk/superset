@@ -1,7 +1,7 @@
 import { cn } from "@superset/ui/utils";
-import { DndProvider } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
+import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
+import type { Pane } from "../../../types";
 import type { WorkspaceProps } from "../../types";
 import { Tab } from "./components/Tab";
 import { TabBar } from "./components/TabBar";
@@ -11,14 +11,34 @@ export function Workspace<TData>({
 	registry,
 	className,
 	renderTabAccessory,
+	renderTabIcon,
+	getTabTitle,
 	renderEmptyState,
 	renderAddTabMenu,
+	renderBelowTabBar,
 	onBeforeCloseTab,
 	paneActions,
+	contextMenuActions,
 }: WorkspaceProps<TData>) {
 	const tabs = useStore(store, (s) => s.tabs);
 	const activeTabId = useStore(store, (s) => s.activeTabId);
 	const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+
+	const previousPanesRef = useRef<Map<string, Pane<TData>>>(new Map());
+	useEffect(() => {
+		const current = new Map<string, Pane<TData>>();
+		for (const tab of tabs) {
+			for (const pane of Object.values(tab.panes)) {
+				current.set(pane.id, pane);
+			}
+		}
+		for (const [prevId, prevPane] of previousPanesRef.current) {
+			if (!current.has(prevId)) {
+				registry[prevPane.kind]?.onRemoved?.(prevPane);
+			}
+		}
+		previousPanesRef.current = current;
+	}, [tabs, registry]);
 
 	const closeTab = async (tabId: string) => {
 		if (onBeforeCloseTab) {
@@ -31,53 +51,52 @@ export function Workspace<TData>({
 	};
 
 	return (
-		<DndProvider backend={HTML5Backend}>
-			<div
-				className={cn(
-					"flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground",
-					className,
-				)}
-			>
-				<TabBar
-					tabs={tabs}
-					activeTabId={activeTabId}
-					onSelectTab={(tabId) => store.getState().setActiveTab(tabId)}
-					onCloseTab={closeTab}
-					onCloseOtherTabs={(tabId) => {
-						for (const tab of tabs) {
-							if (tab.id !== tabId) closeTab(tab.id);
-						}
-					}}
-					onCloseAllTabs={() => {
-						for (const tab of tabs) {
-							closeTab(tab.id);
-						}
-					}}
-					onRenameTab={(tabId, title) =>
-						store
-							.getState()
-							.setTabTitleOverride({ tabId, titleOverride: title })
+		<div
+			className={cn(
+				"flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground",
+				className,
+			)}
+		>
+			<TabBar
+				tabs={tabs}
+				activeTabId={activeTabId}
+				onSelectTab={(tabId) => store.getState().setActiveTab(tabId)}
+				onCloseTab={closeTab}
+				onCloseOtherTabs={async (tabId) => {
+					for (const tab of tabs) {
+						if (tab.id !== tabId) await closeTab(tab.id);
 					}
-					onReorderTab={(tabId, toIndex) =>
-						store.getState().reorderTab({ tabId, toIndex })
+				}}
+				onCloseAllTabs={async () => {
+					for (const tab of tabs) {
+						await closeTab(tab.id);
 					}
-					getTabTitle={(tab) => tab.titleOverride ?? tab.id}
-					renderAddTabMenu={renderAddTabMenu}
-					renderTabAccessory={renderTabAccessory}
+				}}
+				onRenameTab={(tabId, title) =>
+					store.getState().setTabTitleOverride({ tabId, titleOverride: title })
+				}
+				onReorderTab={(tabId, toIndex) =>
+					store.getState().reorderTab({ tabId, toIndex })
+				}
+				getTabTitle={(tab) => tab.titleOverride ?? getTabTitle?.(tab) ?? tab.id}
+				renderTabIcon={renderTabIcon}
+				renderAddTabMenu={renderAddTabMenu}
+				renderTabAccessory={renderTabAccessory}
+			/>
+			{renderBelowTabBar?.()}
+			{activeTab ? (
+				<Tab
+					store={store}
+					tab={activeTab}
+					registry={registry}
+					paneActions={paneActions}
+					contextMenuActions={contextMenuActions}
 				/>
-				{activeTab ? (
-					<Tab
-						store={store}
-						tab={activeTab}
-						registry={registry}
-						paneActions={paneActions}
-					/>
-				) : (
-					<div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-						{renderEmptyState?.() ?? "No tabs open"}
-					</div>
-				)}
-			</div>
-		</DndProvider>
+			) : (
+				<div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+					{renderEmptyState?.() ?? "No tabs open"}
+				</div>
+			)}
+		</div>
 	);
 }

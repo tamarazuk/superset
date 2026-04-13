@@ -91,7 +91,6 @@ export function installUpdate(): void {
 		emitStatus(AUTO_UPDATE_STATUS.IDLE);
 		return;
 	}
-	// Skip confirmation dialog - quitAndInstall internally calls app.quit()
 	setSkipQuitConfirmation();
 	autoUpdater.quitAndInstall(false, true);
 }

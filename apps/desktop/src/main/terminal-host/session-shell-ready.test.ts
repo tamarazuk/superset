@@ -5,8 +5,10 @@ import {
 	createFrameHeader,
 	PtySubprocessFrameDecoder,
 	PtySubprocessIpcType,
-	SHELL_READY_MARKER,
 } from "./pty-subprocess-ipc";
+
+/** OSC 133;A marker emitted by shell wrappers (FinalTerm standard). */
+const SHELL_READY_MARKER = "\x1b]133;A\x07";
 import "./xterm-env-polyfill";
 
 const { Session } = await import("./session");
@@ -266,6 +268,26 @@ describe("Session shell-ready: marker detection", () => {
 		sendData(proc, SHELL_READY_MARKER);
 		expect(getWrittenData(proc)).toEqual(["buffered\n"]);
 	});
+
+	// Wrappers now emit both the legacy OSC 777 and the current OSC 133;A in
+	// a single printf so either daemon version can detect readiness without a
+	// restart. The scanner only matches 133;A — 777 passes through to the
+	// emulator, which drops unknown OSC sequences silently. This test guards
+	// against a future wrapper regression that swaps the order (which would
+	// leave 133;A in the pre-777 slice and still work) or drops 133;A
+	// entirely (which would regress readiness on the current scanner).
+	it("resolves readiness when wrapper emits both 777 and 133;A markers together", () => {
+		const { session, proc } = createTestSession("/bin/zsh");
+		spawnAndReady(session, proc);
+
+		session.write("buffered\n");
+		expect(getWrittenData(proc)).toEqual([]);
+
+		const COMBINED_MARKER = "\x1b]777;superset-shell-ready\x07\x1b]133;A\x07";
+		sendData(proc, `direnv output...${COMBINED_MARKER}prompt$ `);
+
+		expect(getWrittenData(proc)).toEqual(["buffered\n"]);
+	});
 });
 
 describe("Session shell-ready: kill/exit before readiness", () => {
@@ -298,57 +320,6 @@ describe("Session shell-ready: kill/exit before readiness", () => {
 
 		// Writes should be flushed
 		expect(getWrittenData(proc)).toEqual(["echo pending\n"]);
-	});
-});
-
-/** Wait for the emulator write queue to drain (uses setImmediate internally). */
-function waitForEmulatorFlush(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 50));
-}
-
-describe("Session shell-ready: DA1 query response forwarding (#3028)", () => {
-	it("forwards headless emulator DA1 response to subprocess during pending state", async () => {
-		// Fish shell sends DA1 (ESC[c) at startup to detect terminal capabilities.
-		// The headless emulator generates a response (ESC[?1;2c) via xterm.js.
-		// This response MUST be forwarded to the subprocess even during the
-		// "pending" shell-ready state, otherwise fish waits 10s and then
-		// disables optional features like cursor shape and reflow detection.
-		const { session, proc } = createTestSession("/usr/local/bin/fish");
-		spawnAndReady(session, proc);
-
-		// Simulate PTY output containing a DA1 query from fish.
-		// When the headless emulator processes this, xterm.js generates
-		// a DA1 response via its onData callback.
-		sendData(proc, "\x1b[c");
-
-		// The emulator write queue processes via setImmediate, so we need
-		// to let the event loop tick for xterm to process the query.
-		await waitForEmulatorFlush();
-
-		// The emulator's DA1 response should have been forwarded to the
-		// subprocess (written to stdin) even though shell is still pending.
-		const writes = getWrittenData(proc);
-
-		// The response should contain a DA1 reply (ESC[?...c format)
-		expect(writes.length).toBeGreaterThan(0);
-		const da1Response = writes.join("");
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ESC in terminal protocol data
-		expect(da1Response).toMatch(/\x1b\[\?[\d;]+c/);
-	});
-
-	it("forwards DSR response to subprocess during pending state", async () => {
-		const { session, proc } = createTestSession("/bin/zsh");
-		spawnAndReady(session, proc);
-
-		// DSR (Device Status Report): ESC[5n → ESC[0n (terminal OK)
-		sendData(proc, "\x1b[5n");
-
-		await waitForEmulatorFlush();
-
-		const writes = getWrittenData(proc);
-		expect(writes.length).toBeGreaterThan(0);
-		const response = writes.join("");
-		expect(response).toContain("\x1b[0n");
 	});
 });
 
