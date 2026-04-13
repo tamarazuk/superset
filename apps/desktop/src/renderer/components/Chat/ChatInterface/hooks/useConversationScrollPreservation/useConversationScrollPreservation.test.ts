@@ -5,6 +5,7 @@ const actualReact: typeof import("react") = await import("react");
 
 let currentHookIndex = 0;
 let hookRefState: unknown[] = [];
+let pendingLayoutEffects: Array<() => void> = [];
 
 const mockUseRef = (<T>(initialValue: T): RefObject<T> => {
 	const hookIndex = currentHookIndex++;
@@ -18,8 +19,15 @@ const mockUseRef = (<T>(initialValue: T): RefObject<T> => {
 	return ref;
 }) as typeof actualReact.useRef;
 
+const mockUseLayoutEffect = ((effect: () => void | (() => void)) => {
+	pendingLayoutEffects.push(() => {
+		effect();
+	});
+}) as typeof actualReact.useLayoutEffect;
+
 mock.module("react", () => ({
 	...actualReact,
+	useLayoutEffect: mockUseLayoutEffect,
 	useRef: mockUseRef,
 }));
 
@@ -29,14 +37,26 @@ const { useConversationScrollPreservation } = await import(
 
 function useRenderedHook(
 	params: Parameters<typeof useConversationScrollPreservation>[0],
+	{ commit = true }: { commit?: boolean } = {},
 ) {
 	currentHookIndex = 0;
-	return useConversationScrollPreservation(params);
+	const result = useConversationScrollPreservation(params);
+
+	if (commit) {
+		const effectsToRun = pendingLayoutEffects;
+		pendingLayoutEffects = [];
+		for (const effect of effectsToRun) {
+			effect();
+		}
+	}
+
+	return result;
 }
 
 afterEach(() => {
 	currentHookIndex = 0;
 	hookRefState = [];
+	pendingLayoutEffects = [];
 });
 
 describe("useConversationScrollPreservation", () => {
@@ -84,5 +104,27 @@ describe("useConversationScrollPreservation", () => {
 			preserveScrollOnTransientReset: true,
 			scrollRestoreKey: "session-2",
 		});
+	});
+
+	it("does not persist content from an abandoned render", () => {
+		useRenderedHook(
+			{
+				hasConversationContent: true,
+				isAwaitingAssistant: false,
+				isConversationLoading: false,
+				sessionId: "session-1",
+			},
+			{ commit: false },
+		);
+
+		const result = useRenderedHook({
+			hasConversationContent: false,
+			isAwaitingAssistant: false,
+			isConversationLoading: false,
+			sessionId: "session-1",
+		});
+
+		expect(result.shouldShowConversationLoading).toBe(false);
+		expect(result.shouldShowEmptyState).toBe(true);
 	});
 });

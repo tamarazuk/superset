@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 type UseConversationScrollPreservationParams = {
 	hasConversationContent: boolean;
@@ -15,25 +15,24 @@ export function useConversationScrollPreservation({
 }: UseConversationScrollPreservationParams) {
 	const hasEverHadContentRef = useRef(false);
 	const prevSessionIdRef = useRef(sessionId);
+	const sessionChanged = prevSessionIdRef.current !== sessionId;
+	const hasEverHadContent =
+		!sessionChanged && (hasEverHadContentRef.current || hasConversationContent);
 
-	if (prevSessionIdRef.current !== sessionId) {
+	useLayoutEffect(() => {
 		prevSessionIdRef.current = sessionId;
-		hasEverHadContentRef.current = false;
-	}
-
-	if (hasConversationContent) {
-		hasEverHadContentRef.current = true;
-	}
+		hasEverHadContentRef.current = hasEverHadContent;
+	}, [hasEverHadContent, sessionId]);
 
 	const shouldShowConversationLoading =
 		isConversationLoading &&
 		!isAwaitingAssistant &&
 		!hasConversationContent &&
-		!hasEverHadContentRef.current;
+		!hasEverHadContent;
 	const shouldShowEmptyState =
 		!shouldShowConversationLoading &&
 		!hasConversationContent &&
-		!hasEverHadContentRef.current;
+		!hasEverHadContent;
 	const scrollPreservationProps = sessionId
 		? ({
 				preserveScrollOnTransientReset: true,
